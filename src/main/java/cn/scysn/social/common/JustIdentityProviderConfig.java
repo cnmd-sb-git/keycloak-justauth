@@ -1,4 +1,4 @@
-package io.github.yanfeiwuji.justauth.social.common;
+package cn.scysn.social.common;
 
 import me.zhyd.oauth.config.AuthConfig;
 import me.zhyd.oauth.request.AuthDefaultRequest;
@@ -6,7 +6,6 @@ import org.keycloak.broker.oidc.OAuth2IdentityProviderConfig;
 import org.keycloak.models.IdentityProviderModel;
 
 import java.util.function.Function;
-import java.util.function.Supplier;
 
 /**
  * @author yanfeiwuji

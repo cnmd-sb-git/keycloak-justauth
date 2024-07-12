@@ -1,4 +1,4 @@
-package io.github.yanfeiwuji.justauth.social.common;
+package cn.scysn.social.common;
 
 
 import cn.hutool.json.JSONUtil;

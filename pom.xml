@@ -10,14 +10,16 @@
     <version>24.0.4</version>
   </parent>
 
-  <groupId>io.github.yanfeiwuji</groupId>
-  <artifactId>keycloak-justauth</artifactId>
+  <groupId>cn.scysn</groupId>
+  <artifactId>keycloak-social</artifactId>
   <packaging>jar</packaging>
   <properties>
-    <maven.compiler.source>1.8</maven.compiler.source>
-    <maven.compiler.target>1.8</maven.compiler.target>
-    <justauth.version>1.16.5</justauth.version>
-    <hutool.version>5.8.18</hutool.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.target>17</maven.compiler.target>
+    <maven.compiler.source>17</maven.compiler.source>
+    <java.version>17</java.version>
+    <justauth.version>1.16.6</justauth.version>
+    <hutool.version>5.8.29</hutool.version>
   </properties>
 
   <dependencies>

@@ -1,8 +1,8 @@
-package io.github.yanfeiwuji.justauth.social;
+package cn.scysn.social;
 
-import io.github.yanfeiwuji.justauth.social.common.JustAuthKey;
-import io.github.yanfeiwuji.justauth.social.common.JustIdentityProvider;
-import io.github.yanfeiwuji.justauth.social.common.JustIdentityProviderConfig;
+import cn.scysn.social.common.JustIdentityProvider;
+import cn.scysn.social.common.JustAuthKey;
+import cn.scysn.social.common.JustIdentityProviderConfig;
 import org.keycloak.broker.oidc.OAuth2IdentityProviderConfig;
 import org.keycloak.broker.provider.AbstractIdentityProviderFactory;
 import org.keycloak.broker.social.SocialIdentityProviderFactory;
