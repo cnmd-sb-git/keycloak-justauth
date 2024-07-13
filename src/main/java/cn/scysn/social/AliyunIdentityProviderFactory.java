@@ -11,8 +11,7 @@ import org.keycloak.models.KeycloakSession;
 import me.zhyd.oauth.request. AuthAliyunRequest;
 
 /**
- * @author yanfeiwuji
- * @date 2021/1/10 5:48 下午
+ * 阿里云
  */
 
 public class AliyunIdentityProviderFactory extends

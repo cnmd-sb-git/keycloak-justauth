@@ -2,12 +2,19 @@ package cn.scysn.social.common;
 
 
 import cn.hutool.json.JSONUtil;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.HttpHeaders;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.UriBuilder;
 import me.zhyd.oauth.config.AuthConfig;
 import me.zhyd.oauth.model.AuthCallback;
 import me.zhyd.oauth.model.AuthResponse;
 import me.zhyd.oauth.model.AuthUser;
 import me.zhyd.oauth.request.AuthDefaultRequest;
 import me.zhyd.oauth.request.AuthRequest;
+import org.keycloak.OAuth2Constants;
 import org.keycloak.broker.oidc.AbstractOAuth2IdentityProvider;
 import org.keycloak.broker.provider.AuthenticationRequest;
 import org.keycloak.broker.provider.BrokeredIdentityContext;
@@ -15,6 +22,7 @@ import org.keycloak.broker.provider.IdentityProvider;
 import org.keycloak.broker.provider.util.IdentityBrokerState;
 import org.keycloak.broker.social.SocialIdentityProvider;
 import org.keycloak.common.ClientConnection;
+import org.keycloak.events.Errors;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.events.EventType;
 import org.keycloak.models.ClientModel;
@@ -25,11 +33,9 @@ import org.keycloak.services.ErrorPage;
 import org.keycloak.services.managers.ClientSessionCode;
 import org.keycloak.services.messages.Messages;
 import org.keycloak.sessions.AuthenticationSessionModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-
-import javax.ws.rs.GET;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.core.*;
 import java.util.function.Function;
 
 /**
@@ -38,13 +44,13 @@ import java.util.function.Function;
  */
 public class JustIdentityProvider<T extends AuthDefaultRequest> extends AbstractOAuth2IdentityProvider<JustIdentityProviderConfig> implements SocialIdentityProvider<JustIdentityProviderConfig> {
 
+    private static final Logger log = LoggerFactory.getLogger(JustIdentityProvider.class);
     public final String DEFAULT_SCOPES = "default";
     //OAuth2IdentityProviderConfig
     public final AuthConfig AUTH_CONFIG;
     public final Function<AuthConfig, T> authToReqFunc;
-
+    protected EventBuilder event;
     public final String providerId;
-
 
     public JustIdentityProvider(KeycloakSession session, JustIdentityProviderConfig<T> config) {
         super(session, config);
@@ -55,10 +61,14 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
 
     @Override
     protected UriBuilder createAuthorizationUrl(AuthenticationRequest request) {
-        String redirectUri = request.getRedirectUri();
-        AuthRequest authRequest = getAuthRequest(AUTH_CONFIG, redirectUri);
+        logger.infof("开始构建链接");
+        final UriBuilder uriBuilder;
+        AuthRequest authRequest = getAuthRequest(AUTH_CONFIG, request.getRedirectUri());
+        logger.infof("auth Url:%s ,clientId:%s ,redirect_uri:%s ", getConfig().getAuthorizationUrl(), getConfig().getClientId(), request.getRedirectUri());
         String uri = authRequest.authorize(request.getState().getEncoded());
-        return UriBuilder.fromUri(uri);
+        uriBuilder = UriBuilder.fromUri(uri);
+        logger.info("授权链接是：" + uri);
+        return uriBuilder;
     }
 
     private AuthRequest getAuthRequest(AuthConfig authConfig, String redirectUri) {
@@ -73,7 +83,7 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
 
     @Override
     public Object callback(RealmModel realm, AuthenticationCallback callback, EventBuilder event) {
-        logger.infof("callback: start");
+        logger.infof("callback: start realm:%s  ,event:%s", realm.getName(), event);
         return new Endpoint(session, callback, event);
     }
 
@@ -100,6 +110,7 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
 
         private void sendErrorEvent() {
             event.event(EventType.LOGIN);
+            logger.info("失败");
             event.error(providerId + "_login_failed");
         }
 
@@ -109,6 +120,10 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
                                      @QueryParam("error") String error) {
             // logger params
             logger.infof("authResponse: state=%s,code=%s,error=%s", state, authorizationCode, error);
+            if (state == null) {
+                logger.error("state参数为空");
+                sendErrorEvent();
+            }
             AuthCallback authCallback = AuthCallback.builder()
                     .code(authorizationCode)
                     .state(state)
@@ -119,7 +134,7 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
             String tabId = idpState.getTabId();
 
             if (clientId == null || tabId == null) {
-                logger.errorf("Invalid state parameter: %s", state);
+                logger.errorf("状态参数无效: %s", state);
                 sendErrorEvent();
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
             }
@@ -144,13 +159,10 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
                 });
 
                 if (getConfig().isStoreToken()) {
-                    // make sure that token wasn't already set by getFederatedIdentity();
-                    // want to be able to allow provider to set the token itself.
                     if (federatedIdentity.getToken() == null) {
                         federatedIdentity.setToken(authUser.getToken().getAccessToken());
                     }
                 }
-
                 federatedIdentity.setUsername(authUser.getUuid());
                 federatedIdentity.setBrokerUserId(authUser.getUuid());
                 federatedIdentity.setIdpConfig(config);
@@ -158,12 +170,60 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
                 federatedIdentity.setAuthenticationSession(authSession);
                 return this.callback.authenticated(federatedIdentity);
             } else {
+                logger.errorf("授权失败: %s", response.getMsg());
                 sendErrorEvent();
                 return ErrorPage.error(session, authSession, Response.Status.BAD_GATEWAY, Messages.UNEXPECTED_ERROR_HANDLING_RESPONSE);
             }
         }
+/*        @GET
+//        @Path("")
+        public Response authResponse(
+                @QueryParam(AbstractOAuth2IdentityProvider.OAUTH2_PARAMETER_STATE) String state,
+                @QueryParam("authCode") String authorizationCode,
+                @QueryParam(OAuth2Constants.ERROR) String error) {
+            AbstractOAuth2IdentityProvider.logger.info("OAUTH2_PARAMETER_CODE=" + authorizationCode);
 
+            // 以下样版代码从 AbstractOAuth2IdentityProvider 里获取的。
+            if (state == null) {
+                return errorIdentityProviderLogin(Messages.IDENTITY_PROVIDER_MISSING_STATE_ERROR);
+            }
+            try {
+                AuthenticationSessionModel authSession =
+                        this.callback.getAndVerifyAuthenticationSession(state);
 
+                if (session != null) {
+                    session.getContext().setAuthenticationSession(authSession);
+                }
+                if (error != null) {
+                    AbstractOAuth2IdentityProvider.logger.error(error + " for broker login " + JustIdentityProvider.this.getConfig().getProviderId());
+                    if (error.equals(AbstractOAuth2IdentityProvider.ACCESS_DENIED)) {
+                        return callback.cancelled(JustIdentityProvider.this.getConfig());
+                    } else if (error.equals(OAuthErrorException.LOGIN_REQUIRED)
+                            || error.equals(OAuthErrorException.INTERACTION_REQUIRED)) {
+                        return callback.error(error);
+                    } else {
+                        return callback.error(Messages.IDENTITY_PROVIDER_UNEXPECTED_ERROR);
+                    }
+                }
+
+                if (authorizationCode != null) {
+                    BrokeredIdentityContext federatedIdentity = JustIdentityProvider.this.getFederatedIdentity(authorizationCode);
+
+                    federatedIdentity.setIdpConfig(JustIdentityProvider.this.getConfig());
+                    federatedIdentity.setIdp(JustIdentityProvider.this);
+                    federatedIdentity.setAuthenticationSession(authSession);
+
+                    return callback.authenticated(federatedIdentity);
+                }
+            } catch (WebApplicationException e) {
+                e.printStackTrace(System.out);
+                return e.getResponse();
+            } catch (Exception e) {
+                AbstractOAuth2IdentityProvider.logger.error("Failed to make identity provider oauth callback", e);
+                e.printStackTrace(System.out);
+            }
+            return errorIdentityProviderLogin(Messages.IDENTITY_PROVIDER_UNEXPECTED_ERROR);
+        }*/
     }
 
     @Override
@@ -174,5 +234,11 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
     @Override
     public void authenticationFinished(AuthenticationSessionModel authSession, BrokeredIdentityContext context) {
         authSession.setUserSessionNote(IdentityProvider.FEDERATED_ACCESS_TOKEN, (String) context.getContextData().get(IdentityProvider.FEDERATED_ACCESS_TOKEN));
+    }
+
+    private Response errorIdentityProviderLogin(String message) {
+        event.event(EventType.IDENTITY_PROVIDER_LOGIN);
+        event.error(Errors.IDENTITY_PROVIDER_LOGIN_FAILURE);
+        return ErrorPage.error(session, null, Response.Status.BAD_GATEWAY, message);
     }
 }

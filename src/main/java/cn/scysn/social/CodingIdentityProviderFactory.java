@@ -11,8 +11,7 @@ import org.keycloak.models.KeycloakSession;
 import me.zhyd.oauth.request. AuthCodingRequest;
 
 /**
- * @author yanfeiwuji
- * @date 2021/1/10 5:48 下午
+ * coding
  */
 
 public class CodingIdentityProviderFactory extends

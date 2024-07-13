@@ -11,8 +11,7 @@ import org.keycloak.models.KeycloakSession;
 import me.zhyd.oauth.request. AuthWeChatOpenRequest;
 
 /**
- * @author yanfeiwuji
- * @date 2021/1/10 5:48 下午
+ 微信开放平台
  */
 
 public class WechatOpenIdentityProviderFactory extends

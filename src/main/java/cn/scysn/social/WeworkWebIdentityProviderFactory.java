@@ -11,8 +11,7 @@ import org.keycloak.models.KeycloakSession;
 import me.zhyd.oauth.request. AuthWeChatEnterpriseWebRequest;
 
 /**
- * @author yanfeiwuji
- * @date 2021/1/10 5:48 下午
+ 企业微信客户端内登陆
  */
 
 public class WeworkWebIdentityProviderFactory extends

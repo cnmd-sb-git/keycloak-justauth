@@ -11,8 +11,7 @@ import org.keycloak.models.KeycloakSession;
 import me.zhyd.oauth.request.AuthDingTalkAccountRequest;
 
 /**
- * @author yanfeiwuji
- * @date 2021/1/10 5:48 下午
+ 钉钉账号登陆
  */
 
 public class DingAccountIdentityProviderFactory extends

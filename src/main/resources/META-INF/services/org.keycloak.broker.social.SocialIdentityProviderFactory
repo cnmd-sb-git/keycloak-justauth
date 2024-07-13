@@ -2,7 +2,6 @@ cn.scysn.social.WechatMpIdentityProviderFactory
 cn.scysn.social.WechatOpenIdentityProviderFactory
 cn.scysn.social.DingTalkIdentityProviderFactory
 cn.scysn.social.GiteeIdentityProviderFactory
-cn.scysn.social.WeiboIdentityProviderFactory
 cn.scysn.social.CodingIdentityProviderFactory
 cn.scysn.social.AlipayIdentityProviderFactory
 cn.scysn.social.QqIdentityProviderFactory
