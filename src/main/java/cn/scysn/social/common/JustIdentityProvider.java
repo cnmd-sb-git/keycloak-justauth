@@ -2,8 +2,7 @@ package cn.scysn.social.common;
 
 
 import cn.hutool.json.JSONUtil;
-import jakarta.ws.rs.GET;
-import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -14,8 +13,8 @@ import me.zhyd.oauth.model.AuthResponse;
 import me.zhyd.oauth.model.AuthUser;
 import me.zhyd.oauth.request.AuthDefaultRequest;
 import me.zhyd.oauth.request.AuthRequest;
-import org.keycloak.OAuth2Constants;
 import org.keycloak.broker.oidc.AbstractOAuth2IdentityProvider;
+import org.keycloak.broker.oidc.OAuth2IdentityProviderConfig;
 import org.keycloak.broker.provider.AuthenticationRequest;
 import org.keycloak.broker.provider.BrokeredIdentityContext;
 import org.keycloak.broker.provider.IdentityProvider;
@@ -59,6 +58,11 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
         this.providerId = config.getProviderId();
     }
 
+    private AuthRequest getAuthRequest(AuthConfig authConfig, String redirectUri) {
+        authConfig.setRedirectUri(redirectUri);
+        return authToReqFunc.apply(authConfig);
+    }
+
     @Override
     protected UriBuilder createAuthorizationUrl(AuthenticationRequest request) {
         logger.infof("开始构建链接");
@@ -71,11 +75,6 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
         return uriBuilder;
     }
 
-    private AuthRequest getAuthRequest(AuthConfig authConfig, String redirectUri) {
-        authConfig.setRedirectUri(redirectUri);
-        return authToReqFunc.apply(authConfig);
-    }
-
     @Override
     protected String getDefaultScopes() {
         return DEFAULT_SCOPES;
@@ -84,11 +83,11 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
     @Override
     public Object callback(RealmModel realm, AuthenticationCallback callback, EventBuilder event) {
         logger.infof("callback: start realm:%s  ,event:%s", realm.getName(), event);
-        return new Endpoint(session, callback, event);
+        return new Endpoint(session, callback, event, providerId, this.AUTH_CONFIG, authToReqFunc, this);
     }
 
 
-    protected class Endpoint {
+    public static class Endpoint {
         protected final RealmModel realm;
         protected final AuthenticationCallback callback;
         protected final EventBuilder event;
@@ -98,15 +97,33 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
         protected final ClientConnection clientConnection;
 
         protected final HttpHeaders headers;
+        protected final String providerId;
 
-        public Endpoint(KeycloakSession session, AuthenticationCallback callback, EventBuilder event) {
+        protected final AuthConfig authConfig;
+
+        protected final Function<AuthConfig, ? extends AuthRequest> authToReqFunc;
+
+        protected final JustIdentityProvider identityProvider;
+
+        public Endpoint(KeycloakSession session, AuthenticationCallback callback, EventBuilder event, String providerId, AuthConfig authConfig, Function<AuthConfig, ? extends AuthRequest> authToReqFunc, JustIdentityProvider identityProvider) {
             this.session = session;
             this.realm = session.getContext().getRealm();
             this.clientConnection = session.getContext().getConnection();
             this.callback = callback;
             this.event = event;
             this.headers = session.getContext().getRequestHeaders();
+            this.providerId = providerId;
+            this.authConfig = authConfig;
+            this.authToReqFunc = authToReqFunc;
+            this.identityProvider = identityProvider;
         }
+
+
+        private AuthRequest getAuthRequest(AuthConfig authConfig, String redirectUri) {
+            authConfig.setRedirectUri(redirectUri);
+            return authToReqFunc.apply(authConfig);
+        }
+
 
         private void sendErrorEvent() {
             event.event(EventType.LOGIN);
@@ -115,6 +132,9 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
         }
 
         @GET
+        @Produces(MediaType.APPLICATION_JSON)
+        @Consumes(MediaType.APPLICATION_JSON)
+        @Path("")
         public Response authResponse(@QueryParam("state") String state,
                                      @QueryParam("code") String authorizationCode,
                                      @QueryParam("error") String error) {
@@ -125,9 +145,9 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
                 sendErrorEvent();
             }
             AuthCallback authCallback = AuthCallback.builder()
-                    .code(authorizationCode)
-                    .state(state)
-                    .build();
+                .code(authorizationCode)
+                .state(state)
+                .build();
 
             IdentityBrokerState idpState = IdentityBrokerState.encoded(state, realm);
             String clientId = idpState.getClientId();
@@ -142,15 +162,15 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
             ClientModel client = realm.getClientByClientId(clientId);
 
             AuthenticationSessionModel
-                    authSession = ClientSessionCode.getClientSession(state, tabId, session, realm, client, event, AuthenticationSessionModel.class);
+                authSession = ClientSessionCode.getClientSession(state, tabId, session, realm, client, event, AuthenticationSessionModel.class);
 
             // 没有check 不通过
             String redirectUri = "https://io.github.yanfeiwuji";
-            AuthRequest authRequest = getAuthRequest(AUTH_CONFIG, redirectUri);
+            AuthRequest authRequest = getAuthRequest(authConfig, redirectUri);
             AuthResponse<AuthUser> response = authRequest.login(authCallback);
             if (response.ok()) {
                 AuthUser authUser = response.getData();
-                JustIdentityProviderConfig config = JustIdentityProvider.this.getConfig();
+                OAuth2IdentityProviderConfig config = identityProvider.getConfig();
                 BrokeredIdentityContext federatedIdentity = new BrokeredIdentityContext(authUser.getUuid());
                 authUser.getRawUserInfo().forEach((k, v) -> {
                     String value = (v instanceof String) ? v.toString() : JSONUtil.toJsonStr(v);
@@ -158,7 +178,7 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
                     federatedIdentity.setUserAttribute(config.getAlias() + "-" + k, value);
                 });
 
-                if (getConfig().isStoreToken()) {
+                if (identityProvider.getConfig().isStoreToken()) {
                     if (federatedIdentity.getToken() == null) {
                         federatedIdentity.setToken(authUser.getToken().getAccessToken());
                     }
@@ -166,7 +186,7 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
                 federatedIdentity.setUsername(authUser.getUuid());
                 federatedIdentity.setBrokerUserId(authUser.getUuid());
                 federatedIdentity.setIdpConfig(config);
-                federatedIdentity.setIdp(JustIdentityProvider.this);
+                federatedIdentity.setIdp(identityProvider);
                 federatedIdentity.setAuthenticationSession(authSession);
                 return this.callback.authenticated(federatedIdentity);
             } else {
@@ -175,55 +195,6 @@ public class JustIdentityProvider<T extends AuthDefaultRequest> extends Abstract
                 return ErrorPage.error(session, authSession, Response.Status.BAD_GATEWAY, Messages.UNEXPECTED_ERROR_HANDLING_RESPONSE);
             }
         }
-/*        @GET
-//        @Path("")
-        public Response authResponse(
-                @QueryParam(AbstractOAuth2IdentityProvider.OAUTH2_PARAMETER_STATE) String state,
-                @QueryParam("authCode") String authorizationCode,
-                @QueryParam(OAuth2Constants.ERROR) String error) {
-            AbstractOAuth2IdentityProvider.logger.info("OAUTH2_PARAMETER_CODE=" + authorizationCode);
-
-            // 以下样版代码从 AbstractOAuth2IdentityProvider 里获取的。
-            if (state == null) {
-                return errorIdentityProviderLogin(Messages.IDENTITY_PROVIDER_MISSING_STATE_ERROR);
-            }
-            try {
-                AuthenticationSessionModel authSession =
-                        this.callback.getAndVerifyAuthenticationSession(state);
-
-                if (session != null) {
-                    session.getContext().setAuthenticationSession(authSession);
-                }
-                if (error != null) {
-                    AbstractOAuth2IdentityProvider.logger.error(error + " for broker login " + JustIdentityProvider.this.getConfig().getProviderId());
-                    if (error.equals(AbstractOAuth2IdentityProvider.ACCESS_DENIED)) {
-                        return callback.cancelled(JustIdentityProvider.this.getConfig());
-                    } else if (error.equals(OAuthErrorException.LOGIN_REQUIRED)
-                            || error.equals(OAuthErrorException.INTERACTION_REQUIRED)) {
-                        return callback.error(error);
-                    } else {
-                        return callback.error(Messages.IDENTITY_PROVIDER_UNEXPECTED_ERROR);
-                    }
-                }
-
-                if (authorizationCode != null) {
-                    BrokeredIdentityContext federatedIdentity = JustIdentityProvider.this.getFederatedIdentity(authorizationCode);
-
-                    federatedIdentity.setIdpConfig(JustIdentityProvider.this.getConfig());
-                    federatedIdentity.setIdp(JustIdentityProvider.this);
-                    federatedIdentity.setAuthenticationSession(authSession);
-
-                    return callback.authenticated(federatedIdentity);
-                }
-            } catch (WebApplicationException e) {
-                e.printStackTrace(System.out);
-                return e.getResponse();
-            } catch (Exception e) {
-                AbstractOAuth2IdentityProvider.logger.error("Failed to make identity provider oauth callback", e);
-                e.printStackTrace(System.out);
-            }
-            return errorIdentityProviderLogin(Messages.IDENTITY_PROVIDER_UNEXPECTED_ERROR);
-        }*/
     }
 
     @Override
